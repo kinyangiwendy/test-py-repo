@@ -43,7 +43,12 @@ THRESHOLDS = {
     "under_voltage": 9.0,
     "over_current": 10.0,
     "over_temperature": 50.0,
+    "low_battery": 10.0,        # warning before hard cutoff — relay stays closed
+    "charge_complete": 12.6,    # stop charging when battery is full
 }
+
+# Faults that warn the user but do NOT open the relay
+WARN_ONLY_FAULTS = {"LOW_BATTERY"}
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -96,8 +101,10 @@ latest_reading: dict = {}
 def detect_faults(data: dict) -> list:
     faults = []
     v, i, t = data["voltage"], data["current"], data["temperature"]
+    is_charging = bool(data.get("charging", 0))
 
-    if v > THRESHOLDS["over_voltage"]:
+    # Over-voltage only when NOT charging (charging near 12.6 V is normal)
+    if v > THRESHOLDS["over_voltage"] and not is_charging:
         faults.append({"type": "OVER_VOLTAGE", "value": v, "threshold": THRESHOLDS["over_voltage"]})
     if v < THRESHOLDS["under_voltage"]:
         faults.append({"type": "UNDER_VOLTAGE", "value": v, "threshold": THRESHOLDS["under_voltage"]})
@@ -107,6 +114,14 @@ def detect_faults(data: dict) -> list:
         faults.append({"type": "OVER_TEMP", "value": t, "threshold": THRESHOLDS["over_temperature"]})
     if data.get("flame", 0) == 1:
         faults.append({"type": "FIRE_DETECTED", "value": 1.0, "threshold": 0.0})
+
+    # Low battery warning — above hard cutoff but approaching it (relay stays closed)
+    if THRESHOLDS["under_voltage"] <= v <= THRESHOLDS["low_battery"] and not is_charging:
+        faults.append({"type": "LOW_BATTERY", "value": v, "threshold": THRESHOLDS["low_battery"]})
+
+    # Charge complete — open charging relay when battery is full
+    if is_charging and v >= THRESHOLDS["charge_complete"]:
+        faults.append({"type": "CHARGE_COMPLETE", "value": v, "threshold": THRESHOLDS["charge_complete"]})
 
     return faults
 
@@ -146,7 +161,7 @@ async def process_line(line: str):
     payload = {
         **raw,
         "faults": faults,
-        "relay_open": len(faults) > 0,
+        "relay_open": any(f["type"] not in WARN_ONLY_FAULTS for f in faults),
         "timestamp": datetime.utcnow().isoformat(),
     }
     latest_reading = payload
