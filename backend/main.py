@@ -39,7 +39,7 @@ SERIAL_PORT = os.getenv("SERIAL_PORT", "")          # e.g. "/dev/ttyUSB0"
 SERIAL_BAUD = int(os.getenv("SERIAL_BAUD", "115200"))
 
 THRESHOLDS = {
-    "over_voltage": 12.6,
+    "over_voltage": 12.6, 
     "under_voltage": 9.0,
     "over_current": 10.0,
     "over_temperature": 50.0,
